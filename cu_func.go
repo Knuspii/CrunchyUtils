@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gen2brain/beeep"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -48,9 +50,9 @@ func yesNo(question string) bool {
 		answer, _ := reader.ReadString('\n')
 		answer = strings.ToLower(strings.TrimSpace(answer))
 		switch answer {
-		case "y", "yes", "ye", "yup", "ja":
+		case "y", "yes", "ye", "yup", "ja", "yessir", "yep":
 			return true
-		case "n", "no", "nah", "ne", "nein":
+		case "n", "no", "nah", "ne", "nein", "na", "nope":
 			return false
 		}
 	}
@@ -118,6 +120,20 @@ func runCommand(cmd []string) (string, error) {
 
 	// If successful, return the output and nil error
 	return out, nil
+}
+
+func notifyAlarm() {
+	// system notification
+	beeep.Alert(
+		"CrunchyUtils",
+		"Alert!",
+		"",
+	)
+	beeep.Beep(600, 150)
+	time.Sleep(100 * time.Millisecond)
+	beeep.Beep(800, 200)
+	time.Sleep(100 * time.Millisecond)
+	beeep.Beep(1000, 300)
 }
 
 func clearScreen() {
@@ -209,22 +225,44 @@ func GetTotalRAM() string {
 	return fmt.Sprintf("%.0f MB", float64(vm.Total)/1024/1024)
 }
 
-// GetDiskInfo returns disk name, total and free space (GB) for the root/main partition
+// GetDiskInfo returns disk mountpoint total space and used percentage
 func GetDiskInfo() (string, string, string) {
 	partitions, err := disk.Partitions(false)
 	if err != nil || len(partitions) == 0 {
-		return "Unknown", "0 GB", "0 GB"
+		return "Unknown", "0 GB", "0%"
 	}
 
 	root := partitions[0].Mountpoint
 	usage, err := disk.Usage(root)
-	if err != nil {
-		return root, "0 GB", "0 GB"
+	if err != nil || usage.Total == 0 {
+		return root, "0 GB", "0%"
 	}
 
 	total := fmt.Sprintf("%.0f GB", float64(usage.Total)/1024/1024/1024)
-	free := fmt.Sprintf("%.0f GB", float64(usage.Free)/1024/1024/1024)
-	return root, total, free
+	usedPercent := fmt.Sprintf("%.0f%%", usage.UsedPercent)
+
+	return root, total, usedPercent
+}
+
+// getCurrentPartitionUsedBytes returns used bytes of the current working directory's partition
+func getCurrentPartitionUsedBytes() (uint64, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return 0, err
+	}
+
+	// Auf aktuelle Partition mounten
+	partition := cwd
+	if goos == "windows" {
+		partition = filepath.VolumeName(cwd) + "\\"
+	}
+
+	usage, err := disk.Usage(partition)
+	if err != nil {
+		return 0, err
+	}
+
+	return usage.Used, nil
 }
 
 // getTopCPUProcesses returns the top 5 CPU-consuming processes on the system
@@ -299,16 +337,15 @@ func getTopCPUProcesses() []string {
 	return top
 }
 
-// getFreeRAMPercent returns the percentage of free RAM on the system as a string (e.g., "42%").
-// It works on both Windows and Linux/Unix systems.
-func getFreeRAMPercent() string {
+// getRAMUsagePercent returns the percentage of used RAM as a string (e.g. "58%")
+func getRAMUsagePercent() string {
 	vm, err := mem.VirtualMemory()
-	if err != nil {
-		return ""
+	if err != nil || vm.Total == 0 {
+		return "0%"
 	}
 
-	percent := (float64(vm.Available) / float64(vm.Total)) * 100
-	return fmt.Sprintf("%.0f%%", percent)
+	usedPercent := (float64(vm.Used) / float64(vm.Total)) * 100
+	return fmt.Sprintf("%.0f%%", usedPercent)
 }
 
 // getUptime returns the system uptime as a formatted string, e.g., "12H:34M".

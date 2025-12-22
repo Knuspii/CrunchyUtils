@@ -57,6 +57,11 @@ func cleanSystemFull() {
 		}
 	}
 
+	before, err := getCurrentPartitionUsedBytes()
+	if err != nil {
+		printError(err.Error())
+		return
+	}
 	// Execute all tasks
 	for _, t := range tasks {
 		// Start spinner for the current task
@@ -88,6 +93,15 @@ func cleanSystemFull() {
 
 		time.Sleep(200 * time.Millisecond) // Small pause before next task
 	}
+	after, err := getCurrentPartitionUsedBytes()
+	if err != nil {
+		printError(err.Error())
+		return
+	}
+	freedMB := float64(before-after) / 1024 / 1024
+	printSuccess(fmt.Sprintf("Cleanup finished. Freed: %.2f MB", freedMB))
+	go notifyAlarm()
+	pause()
 }
 
 func CrunchySystemMonitor() {
@@ -123,8 +137,8 @@ func CrunchySystemMonitor() {
 	cpuUsage := getCPUUsagePercent()
 	topCPU := getTopCPUProcesses()
 	ramTotal := GetTotalRAM()
-	freeRam := getFreeRAMPercent()
-	diskName, diskTotal, diskFree := GetDiskInfo()
+	freeRam := getRAMUsagePercent()
+	diskName, diskTotal, diskUsed := GetDiskInfo()
 
 	for {
 		select {
@@ -153,19 +167,18 @@ func CrunchySystemMonitor() {
 
 			fmt.Printf("%s# RAM Info:%s\n", YELLOW, RC)
 			fmt.Printf("└┬Total RAM: %s\n", ramTotal)
-			fmt.Printf(" └Free RAM : %s %s\n", freeRam, createBar(freeRam))
+			fmt.Printf(" └Usage    : %s %s\n", freeRam, createBar(freeRam))
 			line()
 
-			diskPercent := "0%"
 			totalGB, err1 := strconv.ParseFloat(strings.TrimSuffix(diskTotal, " GB"), 64)
-			freeGB, err2 := strconv.ParseFloat(strings.TrimSuffix(diskFree, " GB"), 64)
+			freeGB, err2 := strconv.ParseFloat(strings.TrimSuffix(diskUsed, " GB"), 64)
 			if err1 == nil && err2 == nil && totalGB > 0 {
-				diskPercent = fmt.Sprintf("%d%%", int(freeGB*100/totalGB))
+				diskUsed = fmt.Sprintf("%d%%", int(freeGB*100/totalGB))
 			}
 			fmt.Printf("%s# Disk Info:%s\n", YELLOW, RC)
 			fmt.Printf("└┬Disk Name : %s\n", diskName)
 			fmt.Printf(" ├Total     : %s\n", diskTotal)
-			fmt.Printf(" └Free      : %s %s %s\n", diskFree, diskPercent, createBar(diskPercent))
+			fmt.Printf(" └Used      : %s %s\n", diskUsed, createBar(diskUsed))
 			line()
 
 			fmt.Printf("Press [Enter] to stop the System Monitor\n")
@@ -174,8 +187,8 @@ func CrunchySystemMonitor() {
 			go func() {
 				cpuUsage = getCPUUsagePercent()
 				topCPU = getTopCPUProcesses()
-				freeRam = getFreeRAMPercent()
-				diskName, diskTotal, diskFree = GetDiskInfo()
+				freeRam = getRAMUsagePercent()
+				diskName, diskTotal, diskUsed = GetDiskInfo()
 			}()
 
 			time.Sleep(1 * time.Second)
@@ -210,17 +223,8 @@ func countdownTimer(totalSeconds int) {
 		}
 	}
 
-	printSuccess("Finished timer")
-
-	// Show notification depending on OS
-	switch goos {
-	case "windows":
-		cmd := exec.Command("powershell", "-Command", "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Finished timer', 'CrunchyUtils Timer')")
-		cmd.Run()
-	default:
-		cmd := exec.Command("sh", "-c", "zenity --info --text=\"CrunchyUtils Finished timer!\"")
-		cmd.Run()
-	}
+	printSuccess("Timer finished")
+	go notifyAlarm()
 }
 
 // stopwatch runs a simple stopwatch
@@ -246,47 +250,6 @@ func stopwatch() {
 			fmt.Printf("\r%s%s%s", GREEN, formatTime(elapsed), RC)
 		case <-stop:
 			printInfo("Stopwatch stopped")
-			return
-		}
-	}
-}
-
-// timerOrStopwatchMenu shows timer and stopwatch menu
-func timerOrStopwatchMenu() {
-	var cu_CmdName = "Timer/Stopwatch"
-	for {
-		printCommandTitle(cu_CmdName)
-		fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
-		fmt.Printf(" [1] - %sTimer%s\n", YELLOW, RC)
-		fmt.Printf(" [2] - %sStopwatch%s\n", YELLOW, RC)
-		line()
-		fmt.Printf("Enter option%s", PROMPT)
-
-		opt, _ := reader.ReadString('\n')
-		opt = strings.TrimSpace(opt)
-
-		switch opt {
-		case "0":
-			return
-		case "1":
-			fmt.Printf("Enter time (HH:MM:SS)%s", PROMPT)
-			input, _ := reader.ReadString('\n')
-			input = strings.TrimSpace(input)
-			secs, err := parseTimeInput(input)
-			if err != nil {
-				fmt.Printf("Invalid time format\n")
-				continue
-			}
-			countdownTimer(secs)
-			pause()
-			return
-		case "2":
-			stopwatch()
-			pause()
-			return
-		default:
-			fmt.Printf("Invalid Option\n")
-			pause()
 			return
 		}
 	}
@@ -408,6 +371,7 @@ func powerTimer(action, toption string) {
 	}
 
 	printSuccess("Finished timer. Executing...\n")
+	go notifyAlarm()
 	time.Sleep(2 * time.Second)
 
 	// Determine the shutdown/reboot command based on OS
@@ -434,54 +398,10 @@ func powerTimer(action, toption string) {
 	}
 }
 
-func powerTimerMenu() {
-	var cu_CmdName = "Shutdown/Reboot Timer"
-	for {
-		printCommandTitle(cu_CmdName)
-		fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
-		fmt.Printf(" [1] - %sShutdown Timer%s\n", YELLOW, RC)
-		fmt.Printf(" [2] - %sReboot Timer%s\n", YELLOW, RC)
-		line()
-		fmt.Printf("Enter option%s", PROMPT)
-
-		opt, _ := reader.ReadString('\n')
-		opt = strings.TrimSpace(opt)
-
-		switch opt {
-		case "0":
-			return
-		case "1":
-			var toption string
-			if goos == "windows" {
-				toption = "Wshutdown"
-			} else {
-				toption = "Lshutdown"
-			}
-			powerTimer("shutdown", toption)
-			pause()
-			return
-		case "2":
-			var toption string
-			if goos == "windows" {
-				toption = "Wreboot"
-			} else {
-				toption = "Lreboot"
-			}
-			powerTimer("reboot", toption)
-			pause()
-			return
-		default:
-			fmt.Printf("Invalid Option\n")
-			pause()
-			return
-		}
-	}
-}
-
 // weather fetches and prints weather info for a city
 func weather() {
-	fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
-	fmt.Printf(" Enter city (e.g. Chicago)%s", PROMPT)
+	fmt.Printf("Enter 0 to cancel\n")
+	fmt.Printf("Enter city (e.g. Chicago)%s", PROMPT)
 	cu_input, _ := reader.ReadString('\n')
 	cu_input = strings.TrimSpace(cu_input)
 
@@ -502,7 +422,7 @@ func weather() {
 	go asyncSpinner(ctx, "Weather...")
 
 	// Build URL for wttr.in API
-	url := fmt.Sprintf("http://wttr.in/%s?format=%%l:+%%C+%%t+%%w", cu_input)
+	url := fmt.Sprintf("https://wttr.in/%s?format=%%l:+%%C+%%t+%%w", cu_input)
 	resp, err := http.Get(url)
 	cancel() // stop spinner once request is done
 
@@ -533,8 +453,8 @@ func weather() {
 
 // infograb fetches and prints info about a domain/website
 func infograb() {
-	fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
-	fmt.Printf(" Enter domain (e.g. google.com)%s", PROMPT)
+	fmt.Printf("Enter 0 to cancel\n")
+	fmt.Printf("Enter domain (e.g. google.com)%s", PROMPT)
 	cu_input, _ := reader.ReadString('\n')
 	cu_input = strings.TrimSpace(cu_input)
 
@@ -607,5 +527,71 @@ func infograb() {
 	cancel()
 	fmt.Printf("\r\033[2K%s%s", output.String(), RC)
 	printSuccess("Finished getting infos")
+	pause()
+}
+
+func restartDisplay() {
+	printInfo("Attempting to restart the display manager...")
+
+	switch goos {
+	case "windows":
+		printInfo("Restarting Windows Explorer...")
+		if _, err := runCommand([]string{"taskkill", "/f", "/im", "explorer.exe"}); err != nil {
+			printError(fmt.Sprintf("Failed to kill explorer.exe: %v", err))
+			return
+		}
+		time.Sleep(1 * time.Second)
+		if _, err := runCommand([]string{"explorer.exe"}); err != nil {
+			printError(fmt.Sprintf("Failed to restart explorer.exe: %v", err))
+			return
+		}
+		printSuccess("Explorer restarted successfully")
+
+	default: // Linux/Unix
+		printInfo("Detecting display manager...")
+		displayManagers := []string{"gdm", "lightdm", "sddm", "lxdm", "xdm"}
+		restarted := false
+
+		for _, dm := range displayManagers {
+			if _, err := runCommand([]string{"systemctl", "restart", dm}); err == nil {
+				printSuccess(fmt.Sprintf("%s restarted successfully", dm))
+				restarted = true
+				break
+			}
+		}
+
+		if !restarted {
+			// fallback: kill Xorg or Wayland session
+			printInfo("Fallback: killing Xorg/Wayland session")
+			exec.Command("pkill", "-HUP", "Xorg").Run()
+			exec.Command("pkill", "-HUP", "wayland").Run()
+			printInfo("Display restart attempted via fallback (may log out user)")
+		}
+	}
+	pause()
+}
+
+func rebootBIOS() {
+	printInfo("Attempting to reboot into BIOS/UEFI...")
+
+	var cmd []string
+
+	switch goos {
+	case "windows":
+		// Windows: Neustart ins BIOS
+		cmd = []string{"shutdown", "/r", "/fw", "/t", "0"}
+	default:
+		// Linux / Unix: systemctl reboot ins BIOS/UEFI
+		cmd = []string{"systemctl", "reboot", "--firmware-setup"}
+	}
+
+	output, err := runCommand(cmd)
+
+	if err != nil {
+		printError("Failed to reboot into BIOS/UEFI")
+		if output != "" {
+			fmt.Printf("  Output: %s\n", output)
+		}
+	}
 	pause()
 }

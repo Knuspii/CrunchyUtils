@@ -11,24 +11,23 @@ package main
 import (
 	"bufio"   // For reading user input
 	"context" // For controlling goroutines (e.g., stopping the spinner)
+	"flag"
 	"fmt"     // Formatted input/output
 	"os"      // General OS interactions (exit, files, etc.)
 	"os/exec" // Executing external commands
 	"os/user" // Getting information about the current user
-
-	// Handling file paths in a cross-platform way
 	"runtime" // Info about the OS / architecture
 	"strings" // String manipulation (Trim, Split, Join, etc.)
 	"time"    // Time-related functions (sleep, timestamp, timeout)
 
 	"github.com/eiannone/keyboard"
+	"github.com/gen2brain/beeep"
 )
 
 const (
-	CU_VERSION = "0.15"
+	CU_VERSION = "0.16"
 	COLS       = 70
-	LINES      = 25
-	CMDWAIT    = 0 * time.Second        // Wait time running a command
+	LINES      = 27
 	PROMPT     = (YELLOW + " >>:" + RC) // Prompt string displayed to the user
 	RED        = "\033[31m"
 	YELLOW     = "\033[33m"
@@ -42,8 +41,12 @@ var (
 	consoleRunning = true
 	goos           = runtime.GOOS
 	reader         = bufio.NewReader(os.Stdin)
-	//SPINNERFRAMES  = []rune{'⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'}
-	SPINNERFRAMES = []rune{'|', '/', '-', '\\'}
+	SPINNERFRAMES  = []rune{'|', '/', '-', '\\'}
+	CMDWAIT        = 1 * time.Second // Wait time running a command
+	// Flags
+	Flagversion = flag.Bool("version", false, "show version")
+	Flagskip    = flag.Bool("skip", false, "skip all delays")
+	Flagnoadmin = flag.Bool("no-admin", false, "skip admin request")
 )
 
 // ============================================================ CONSOLE / STARTUP ============================================================
@@ -120,65 +123,98 @@ func startup() {
 	fmt.Printf("*  c2025 Knuspii  *\n")
 	fmt.Printf("*******************\n")
 	fmt.Printf("\n")
-	time.Sleep(CMDWAIT)
 	switch goos {
 	case "windows":
 		fmt.Printf("%sWindows Detected%s\n", CYAN, RC)
 	case "linux":
-		fmt.Printf("%sLinux Detected%s\n", YELLOW, RC)
+		fmt.Printf("%sLinux Detected%s\n", CYAN, RC)
 	default:
-		printError(goos + " not supported!")
+		printError("OS: " + goos + " not supported!")
 		pause()
 		os.Exit(1)
 	}
 	now := time.Now()
 	fmt.Printf("Time: %s //// Date: %s\n\n", now.Format("15:04:05"), now.Format("02.01.2006"))
+	if !*Flagnoadmin {
+		getAdmin()
+	}
+	printInfo("Initializing...")
 	time.Sleep(CMDWAIT)
-	getAdmin()
 	time.Sleep(CMDWAIT)
 	initApp()
-	fmt.Printf("%s\n*************************************", GREEN)
 	printSuccess("LOADING SUCCESSFUL!")
 	time.Sleep(CMDWAIT)
 	time.Sleep(CMDWAIT)
+	go beeep.Beep(600, 150)
 }
 
 // initApp runs initialization logic and script
 func initApp() {
-	printInfo("Initializing...")
-
-	// Get current username
+	// Current user
 	usr, err := user.Current()
 	if err != nil {
-		fmt.Printf("Username: unknown\n")
+		printError("Username: unknown")
 	} else {
-		fmt.Printf("Username: %s\n", usr.Username)
+		printInfo(fmt.Sprintf("Username: %s", usr.Username))
 	}
 
-	// Set terminal title (works in most terminals)
+	// Set terminal title
 	fmt.Printf("\033]0;CrunchyUtils\007")
 
+	// Try to resize terminal
 	switch goos {
 	case "windows":
-		// Set Windows CMD title
-		_, err := runCommand([]string{"cmd", "/C", "title CrunchyUtils"})
-		if err != nil {
-			printError("Failed to set CMD title: " + err.Error())
-		}
+		// CMD title
+		_, _ = runCommand([]string{"cmd", "/C", "title CrunchyUtils"})
 
-		// Set PowerShell window size and buffer
+		// PowerShell resize
 		psCmd := fmt.Sprintf(
-			`$Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(%d, %d); $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(%d, 300)`,
+			`$Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(%d,%d); $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(%d,300)`,
 			COLS, LINES, COLS,
 		)
-		_, err = runCommand([]string{"powershell", "-Command", psCmd})
-		if err != nil {
-			printError("Failed to set window size: " + err.Error())
-		}
+		_, _ = runCommand([]string{"powershell", "-Command", psCmd})
 
 	default:
-		// Set Unix terminal size using ANSI escape codes
+		// ANSI resize (best effort)
 		fmt.Printf("\033[8;%d;%dt", LINES, COLS)
+	}
+
+	// ---- VERIFY SIZE ----
+	var cols, lines int
+	var sizeErr error
+
+	if goos == "windows" {
+		out, err := runCommand([]string{"cmd", "/C", "mode con"})
+		if err != nil {
+			sizeErr = err
+		} else {
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "Columns:") {
+					fmt.Sscanf(line, "    Columns: %d", &cols)
+				}
+				if strings.Contains(line, "Lines:") {
+					fmt.Sscanf(line, "    Lines: %d", &lines)
+				}
+			}
+		}
+	} else {
+		out, err := runCommand([]string{"sh", "-c", "stty size < /dev/tty"})
+		if err != nil {
+			sizeErr = err
+		} else {
+			fmt.Sscanf(out, "%d %d", &lines, &cols)
+		}
+	}
+
+	if sizeErr != nil || cols == 0 || lines == 0 {
+		printError("Could not detect terminal size")
+		return
+	}
+
+	if cols != COLS || lines != LINES {
+		printError(fmt.Sprintf("Terminal size mismatch got: %dx%d expected: %dx%d", cols, lines, COLS, LINES))
+	} else {
+		printInfo(fmt.Sprintf("Terminal size OK: %dx%d", cols, lines))
 	}
 }
 
@@ -187,7 +223,7 @@ func showBanner() {
 	clearScreen()
 	ctx, cancel := context.WithCancel(context.Background())
 	go asyncSpinner(ctx, "RAM...")
-	freeRam := getFreeRAMPercent()
+	usedRam := getRAMUsagePercent()
 	cancel()
 
 	ctx, cancel = context.WithCancel(context.Background())
@@ -211,23 +247,36 @@ func showBanner() {
 █  ████  ██        ██        ██  █████████      ██ By: Knuspii, (M)
 ▓  ▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓▓▓ Version  : %s
 ▒  ▒▒▒▒  ▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒  ▒▒▒▒▒▒▒▒▒      ▒▒ Uptime   : %s
-▓  ▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓ Free-RAM : %s
+▓  ▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓ Used-RAM : %s
 ██      ██████  █████        ██        ███      ██ Top CPU Tasks:
-`, YELLOW, CU_VERSION, uptime, freeRam)
+`, YELLOW, CU_VERSION, uptime, usedRam)
 	fmt.Printf("%s#════════════════════════════════════════════════╗ ├%s%s\n", YELLOW, topCPU[0], RC)
 	fmt.Printf("Tools:                                           %s║ ├%s%s\n", YELLOW, topCPU[1], RC)
 	fmt.Printf("  [1]  - %sSystem monitor%s                          %s║ └%s%s\n", YELLOW, RC, YELLOW, topCPU[2], RC)
 	fmt.Printf("  [2]  - %sDoes a system cleanup%s                   %s╚═══════════════════#%s\n", YELLOW, RC, YELLOW, RC)
 	fmt.Printf("  [3]  - %sClipboard logger%s\n", YELLOW, RC)
 	fmt.Printf("  [4]  - %sTimer and stopwatch%s                       [I]  - %sInfos%s\n", YELLOW, RC, YELLOW, RC)
-	fmt.Printf("  [5]  - %sShutdown timer%s                            [R]  - %sRefresh%s\n", YELLOW, RC, YELLOW, RC)
-	fmt.Printf("  [6]  - %sShow weather infos%s                        [E]  - %sExit%s\n", YELLOW, RC, RED, RC)
-	fmt.Printf("  [7]  - %sShow infos about Domain%s\n", YELLOW, RC)
+	fmt.Printf("  [5]  - %sShutdown timer%s                            [R]  - %sRestart%s\n", YELLOW, RC, YELLOW, RC)
+	fmt.Printf("  [6]  - %sShow weather infos%s                        [Q]  - %sQuit%s\n", YELLOW, RC, RED, RC)
+	fmt.Printf("  [7]  - %sShow infos about domain%s\n", YELLOW, RC)
+	fmt.Printf("  [8]  - %sRestart display-manager%s\n", YELLOW, RC)
+	fmt.Printf("  [9]  - %sReboot to BIOS%s\n", YELLOW, RC)
 	line()
-	fmt.Printf("Press key to launch a tool (1-7)\n")
+	fmt.Printf("Press key to launch a tool (1-9)\n")
 }
 
 func main() {
+	flag.Parse()
+
+	if *Flagskip {
+		CMDWAIT = 0
+	}
+
+	if *Flagversion {
+		fmt.Printf("CrunchyUtils %s\n", CU_VERSION)
+		os.Exit(0)
+	}
+
 	startup()
 
 	if err := keyboard.Open(); err != nil {
@@ -244,38 +293,140 @@ func main() {
 			continue
 		}
 
+		cmdline()
 		switch char {
 		case '1':
+			keyboard.Close()
+			fmt.Printf("Starting CrunchySystemMonitor...\n")
 			CrunchySystemMonitor()
 			pause()
 		case '2':
+			keyboard.Close()
 			printCommandTitle("Cleanup")
 			if yesNo("Are you sure you want to do a full cleanup?") {
 				cleanSystemFull()
 			}
-			pause()
 		case '3':
+			keyboard.Close()
 			clipboardLogger()
 			pause()
 		case '4':
-			timerOrStopwatchMenu()
+			// Timer/Stopwatch Menu
+			for {
+				printCommandTitle("Timer/Stopwatch")
+				fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
+				fmt.Printf(" [1] - %sTimer%s\n", YELLOW, RC)
+				fmt.Printf(" [2] - %sStopwatch%s\n", YELLOW, RC)
+				line()
+				fmt.Printf("Press key (0-2)\n")
+
+				c, _, err := keyboard.GetSingleKey()
+				if err != nil {
+					continue
+				}
+
+				switch c {
+				case '0':
+					goto endTimerMenu
+				case '1':
+					keyboard.Close()
+					fmt.Printf("Enter time (HH:MM:SS)%s", PROMPT)
+					input, _ := reader.ReadString('\n')
+					input = strings.TrimSpace(input)
+					secs, err := parseTimeInput(input)
+					if err != nil {
+						fmt.Printf("\nInvalid time format\n")
+						pause()
+						continue
+					}
+					countdownTimer(secs)
+				case '2':
+					keyboard.Close()
+					stopwatch()
+				default:
+					fmt.Printf("\nInvalid Option\n")
+					time.Sleep(2 * time.Second)
+				}
+				pause()
+			}
+		endTimerMenu:
+			fmt.Printf("Closed Timer Menu")
 		case '5':
-			powerTimerMenu()
+			// PowerTimer Menu
+			for {
+				printCommandTitle("Shutdown/Reboot Timer")
+				fmt.Printf(" [0] - %sReturn%s\n", RED, RC)
+				fmt.Printf(" [1] - %sShutdown Timer%s\n", YELLOW, RC)
+				fmt.Printf(" [2] - %sReboot Timer%s\n", YELLOW, RC)
+				line()
+				fmt.Printf("Press key (0-2)\n")
+
+				c, _, err := keyboard.GetSingleKey()
+				if err != nil {
+					continue
+				}
+
+				var toption string
+				switch c {
+				case '0':
+					goto endPowerMenu
+				case '1':
+					keyboard.Close()
+					if goos == "windows" {
+						toption = "Wshutdown"
+					} else {
+						toption = "Lshutdown"
+					}
+					powerTimer("shutdown/reboot", toption)
+				case '2':
+					keyboard.Close()
+					if goos == "windows" {
+						toption = "Wreboot"
+					} else {
+						toption = "Lreboot"
+					}
+					powerTimer("shutdown/reboot", toption)
+				default:
+					fmt.Printf("\nInvalid Option\n")
+					time.Sleep(2 * time.Second)
+				}
+
+				pause()
+			}
+		endPowerMenu:
+			fmt.Printf("Closed Power Menu")
 		case '6':
+			keyboard.Close()
 			weather()
 		case '7':
+			keyboard.Close()
 			infograb()
-		case 'i':
-			printInfo("CrunchyUtils Version: " + CU_VERSION)
+		case '8':
+			keyboard.Close()
+			printCommandTitle("Restart Display-Manager")
+			if yesNo("Sure you want to restart your display-manager?") {
+				restartDisplay()
+			}
+		case '9':
+			keyboard.Close()
+			printCommandTitle("Reboot to BIOS")
+			if yesNo("Sure you want to reboot to BIOS?") {
+				rebootBIOS()
+			}
+		case 'i', 'I':
+			keyboard.Close()
+			printInfo("CrunchyUtils " + CU_VERSION)
 			pause()
-		case 'r':
+		case 'r', 'R':
 			clearScreen()
 			startup()
-		case 'e':
-			printInfo("EXITED")
+		case 'q', 'Q', '0':
 			consoleRunning = false
 		default:
 			fmt.Println("Invalid key")
+			time.Sleep(2 * time.Second)
 		}
 	}
+	keyboard.Close()
+	printInfo("EXITED")
 }
