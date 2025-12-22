@@ -7,7 +7,9 @@
 
 <h1>CrunchyUtils 🛠️⚙️</h1>
 
-<img src="data/cu_logo.png" width="500" height="500" alt="CrunchyUtilsLogo">
+<img src="data/cu_logo.png" width="800" height="800" alt="CrunchyUtilsLogo">
+
+Simple program with various utilities. 
 
 ## 📥 [[Download here]](https://github.com/knuspii/crunchyutils/releases) <- Click here to download CrunchyUtils!
 
