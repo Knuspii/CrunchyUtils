@@ -7,7 +7,7 @@
 
 <h1>CrunchyUtils 🛠️⚙️</h1>
 
-<img src="data/cu_logo.png" width="800" height="800" alt="CrunchyUtilsLogo">
+<img src="assets/cu_logo.png" width="800" height="800" alt="CrunchyUtilsLogo">
 
 Simple program with various utilities. 
 
