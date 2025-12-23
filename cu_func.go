@@ -1,3 +1,18 @@
+// #############################################
+// CrunchyUtils - Helper & System Functions
+//
+// This file contains:
+// - UI helper functions (printing, prompts, spinners)
+// - Command execution helpers
+// - System information utilities (CPU, RAM, Disk, Uptime)
+// - Notification & terminal helpers
+//
+// All functions here are platform-aware
+// and designed to be reused across the app.
+//
+// Author: Knuspii (M)
+// #############################################
+
 package main
 
 import (
@@ -13,12 +28,16 @@ import (
 	"time"
 
 	"github.com/gen2brain/beeep"
-	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/cpu" // System infos
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 )
+
+//
+// ========================== OUTPUT HELPERS ==========================
+//
 
 func printInfo(msg string) {
 	fmt.Printf("%s[INFO] %s%s\n", YELLOW, RC, msg)
@@ -31,10 +50,18 @@ func printSuccess(msg string) {
 }
 
 func line() {
-	fmt.Printf("%s#%s#%s\n", YELLOW, strings.Repeat("═", COLS-2), RC)
+	if getcols > COLS+6 {
+		fmt.Printf("%s#%s-~ ~  ~%s\n", YELLOW, strings.Repeat("═", COLS-2), RC)
+	} else {
+		fmt.Printf("%s#%s#%s\n", YELLOW, strings.Repeat("═", COLS-2), RC)
+	}
 }
 func cmdline() {
-	fmt.Printf("%s#%s#%s\n", RED, strings.Repeat("═", COLS-2), RC)
+	if getcols > COLS+6 {
+		fmt.Printf("%s#%s-~ ~  ~%s\n", RED, strings.Repeat("═", COLS-2), RC)
+	} else {
+		fmt.Printf("%s#%s#%s\n", RED, strings.Repeat("═", COLS-2), RC)
+	}
 }
 
 // Pause waits for enter
@@ -79,9 +106,6 @@ func asyncSpinner(ctx context.Context, text string) {
 		default:
 			// Print spinner line:
 			// \r       -> Carriage return to overwrite the same line
-			// [LOADING] -> Static label
-			// YELLOW/RC -> Apply color and reset
-			// text      -> Custom text passed to the spinner
 			// SPINNERFRAMES[i%len(SPINNERFRAMES)] -> Rotate through spinner characters
 			fmt.Printf("\r%s[LOADING]%s %s %c  ", YELLOW, RC, text, SPINNERFRAMES[i%len(SPINNERFRAMES)])
 
@@ -199,8 +223,8 @@ func parseTimeInput(input string) (int, error) {
 }
 
 func getCPUUsagePercent() string {
-	// CPU Prozent über 500ms messen
-	percentages, err := cpu.Percent(500*time.Millisecond, false)
+	// CPU Prozent über 100ms messen, Non-blocking Context
+	percentages, err := cpu.Percent(100*time.Millisecond, false)
 	if err != nil || len(percentages) == 0 {
 		return "0%"
 	}
@@ -265,13 +289,18 @@ func getCurrentPartitionUsedBytes() (uint64, error) {
 	return usage.Used, nil
 }
 
-// getTopCPUProcesses returns the top 5 CPU-consuming processes on the system
+// getTopCPUProcesses returns the names of the top 5 CPU-consuming processes
+// The goal is to show "useful" user processes, not system noise
 func getTopCPUProcesses() []string {
+
+	// Fetch all running processes via gopsutil
 	procs, err := process.Processes()
 	if err != nil {
+		// Fallback if process listing fails
 		return []string{"ERROR", "ERROR", "ERROR", "ERROR", "ERROR"}
 	}
 
+	// Small helper struct to bind process name with its CPU usage
 	type procCPU struct {
 		name string
 		cpu  float64
@@ -280,26 +309,34 @@ func getTopCPUProcesses() []string {
 	var list []procCPU
 
 	for _, p := range procs {
+
+		// Process name lookup can fail depending on permissions
 		name, err := p.Name()
 		if err != nil || name == "" {
 			continue
 		}
 
+		// CPUPercent returns CPU usage since last call
+		// Can be noisy or zero for sleeping processes
 		cpu, err := p.CPUPercent()
 		if err != nil || cpu <= 0 {
 			continue
 		}
 
+		// Filter out known system / background processes
+		// Keeps the list readable and user-focused
 		lower := strings.ToLower(name)
 		if strings.HasPrefix(lower, "system") ||
 			strings.HasPrefix(lower, "svchost") ||
 			strings.HasPrefix(lower, "init") ||
 			strings.HasPrefix(lower, "systemd") ||
 			strings.HasPrefix(lower, "idle") ||
+			strings.HasPrefix(lower, "crunchyutils") ||
 			strings.HasPrefix(lower, "cu_main") {
 			continue
 		}
 
+		// Trim long process names to avoid UI overflow
 		if len(name) > 18 {
 			name = name[:15] + "..."
 		}
@@ -307,12 +344,16 @@ func getTopCPUProcesses() []string {
 		list = append(list, procCPU{name, cpu})
 	}
 
+	// Sort processes by CPU usage descending
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].cpu > list[j].cpu
 	})
 
 	var top []string
+
 	for _, p := range list {
+
+		// Prevent duplicate process names in the output
 		dup := false
 		for _, t := range top {
 			if t == p.name {
@@ -325,11 +366,14 @@ func getTopCPUProcesses() []string {
 		}
 
 		top = append(top, p.name)
+
+		// Stop once we have 5 entries
 		if len(top) == 5 {
 			break
 		}
 	}
 
+	// Ensure fixed-length output for UI alignment
 	for len(top) < 5 {
 		top = append(top, "...")
 	}

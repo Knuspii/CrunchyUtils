@@ -14,19 +14,22 @@ import (
 	"time"
 )
 
-// cleanSystemFull performs a full system cleanup, executing OS-specific tasks.
+// cleanSystemFull performs a full OS cleanup by executing a series of tasks
+// It supports Windows and Linux/Unix-like systems
 func cleanSystemFull() {
-	// Define a cleanup task with a description and the command to execute
+
+	// Define a "task" struct: each task has a description and a command to run
 	type task struct {
-		desc string   // Description of the task (for logging/spinner)
-		cmd  []string // Command and arguments to run
+		desc string   // Human-readable task description for logs / spinner
+		cmd  []string // Command + args to execute
 	}
 
 	var tasks []task
 
 	switch goos {
 	case "windows":
-		// Windows cleanup tasks
+		// Windows-specific cleanup tasks
+		// PowerShell commands used for services, caches, and temp files
 		tasks = []task{
 			{"Stopping Windows Update service", []string{"powershell", "Stop-Service", "-Name", "wuauserv", "-Force", "-ErrorAction", "SilentlyContinue"}},
 			{"Stopping BITS service", []string{"powershell", "Stop-Service", "-Name", "bits", "-Force", "-ErrorAction", "SilentlyContinue"}},
@@ -42,7 +45,8 @@ func cleanSystemFull() {
 		}
 
 	default:
-		// Linux / Unix-like cleanup tasks
+		// Linux / Unix cleanup tasks
+		// rm, journalctl, apt-get, flatpak, snap, pacman, nix etc.
 		tasks = []task{
 			{"Cleaning Thumbnail Cache", []string{"sh", "-c", "rm -rf ~/.cache/thumbnails/*"}},
 			{"Cleaning System Logs >60 days", []string{"journalctl", "--vacuum-time=60d"}},
@@ -57,24 +61,27 @@ func cleanSystemFull() {
 		}
 	}
 
+	// Record current partition usage before cleaning
 	before, err := getCurrentPartitionUsedBytes()
 	if err != nil {
 		printError(err.Error())
 		return
 	}
-	// Execute all tasks
+
+	// Iterate through all tasks
 	for _, t := range tasks {
-		// Start spinner for the current task
+		// Spinner animation while running task
 		ctx, cancel := context.WithCancel(context.Background())
 		go asyncSpinner(ctx, "Running: "+t.desc)
 		time.Sleep(CMDWAIT)
 
-		// Execute the task command and collect output
+		// Execute the command
 		output, err := runCommand(t.cmd)
-		cancel() // Stop the spinner
+		cancel() // stop spinner
 
-		// Clear the spinner line and display results
-		fmt.Printf("\r\033[2K") // ANSI code to clear current line
+		// Clear spinner line before printing results
+		fmt.Printf("\r\033[2K") // ANSI clear line
+
 		if err != nil {
 			// Task failed
 			printError(t.desc + " failed")
@@ -91,90 +98,100 @@ func cleanSystemFull() {
 			}
 		}
 
-		time.Sleep(200 * time.Millisecond) // Small pause before next task
+		time.Sleep(200 * time.Millisecond) // tiny pause before next task
 	}
+
+	// Measure how much disk space was freed
 	after, err := getCurrentPartitionUsedBytes()
 	if err != nil {
 		printError(err.Error())
 		return
 	}
 	freedMB := float64(before-after) / 1024 / 1024
-	printSuccess(fmt.Sprintf("Cleanup finished. Freed: %.2f MB", freedMB))
+	printSuccess(fmt.Sprintf("Cleanup finished. Cleaned: %.2f MB", freedMB))
+
+	// Trigger system notification / beep alert
 	go notifyAlarm()
-	pause()
+	pause() // wait for user to acknowledge
 }
 
 func CrunchySystemMonitor() {
+	// Channel to stop the monitor when user presses Enter
 	stop := make(chan struct{})
 
+	// Listen for Enter key in a separate goroutine
 	go func() {
-		bufio.NewScanner(os.Stdin).Scan()
-		close(stop)
+		bufio.NewScanner(os.Stdin).Scan() // waits until Enter
+		close(stop)                       // signal stop
 	}()
 
+	// Helper function to create a visual bar for percentages
 	createBar := func(value string) string {
-		value = strings.TrimSuffix(value, "%")
-		percent, err := strconv.Atoi(value)
+		value = strings.TrimSuffix(value, "%") // remove % sign
+		percent, err := strconv.Atoi(value)    // parse number
 		if err != nil {
-			return "[??????????]"
+			return "[??????????]" // fallback if parsing fails
 		}
 		totalBars := 10
-		filled := percent * totalBars / 100
+		filled := percent * totalBars / 100 // scale to 10 bars
 		if filled > totalBars {
 			filled = totalBars
 		}
-		return "[" + strings.Repeat("█", filled) + strings.Repeat("░", totalBars-filled) + "]"
+		return "[" + strings.Repeat("█", filled) + strings.Repeat("░", totalBars-filled) + "]" // bar string
 	}
 
-	type DiskInfo struct {
-		Name  string
-		Total string
-		Free  string
-	}
-
-	// Startwerte
-	cpuCores := GetCPUCores()
-	cpuUsage := getCPUUsagePercent()
-	topCPU := getTopCPUProcesses()
-	ramTotal := GetTotalRAM()
-	freeRam := getRAMUsagePercent()
-	diskName, diskTotal, diskUsed := GetDiskInfo()
+	ticker := time.NewTicker(1 * time.Second) // refresh every second
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-stop:
-			printInfo("System Monitor stopped")
+			printInfo("System Monitor stopped") // user pressed Enter
 			return
-		default:
-			clearScreen()
+
+		case <-ticker.C:
+			// Fetch fresh system data
+			cpuCores := GetCPUCores()                      // number of cores
+			cpuUsage := getCPUUsagePercent()               // current CPU %
+			topCPU := getTopCPUProcesses()                 // top 5 CPU-consuming processes
+			ramTotal := GetTotalRAM()                      // total RAM in MB
+			freeRam := getRAMUsagePercent()                // RAM usage %
+			diskName, diskTotal, diskUsed := GetDiskInfo() // disk info
+
+			clearScreen() // refresh terminal
 			printCommandTitle("CrunchyUtils")
 			printCommandTitle("System Monitor")
 			line()
 
-			// Anzeige direkt mit aktuellen Werten
+			// CPU info
 			fmt.Printf("%s# CPU Info:%s\n", YELLOW, RC)
 			fmt.Printf("└┬CPU Cores: %s\n", cpuCores)
 			fmt.Printf(" └Usage    : %s %s\n", cpuUsage, createBar(cpuUsage))
+
+			// Top CPU processes
 			fmt.Printf(" %s# Top CPU Tasks:%s\n", YELLOW, RC)
 			for i, task := range topCPU {
 				prefix := "├"
-				if i == len(topCPU)-1 {
+				if i == len(topCPU)-1 { // last item gets └
 					prefix = "└"
 				}
-				fmt.Printf(" %s %s\n", prefix, task)
+				fmt.Printf(" %s%s\n", prefix, task)
 			}
 			line()
 
+			// RAM info
 			fmt.Printf("%s# RAM Info:%s\n", YELLOW, RC)
 			fmt.Printf("└┬Total RAM: %s\n", ramTotal)
 			fmt.Printf(" └Usage    : %s %s\n", freeRam, createBar(freeRam))
 			line()
 
+			// Disk info: calculate used % if needed
 			totalGB, err1 := strconv.ParseFloat(strings.TrimSuffix(diskTotal, " GB"), 64)
-			freeGB, err2 := strconv.ParseFloat(strings.TrimSuffix(diskUsed, " GB"), 64)
+			usedGB, err2 := strconv.ParseFloat(strings.TrimSuffix(diskUsed, " GB"), 64)
 			if err1 == nil && err2 == nil && totalGB > 0 {
-				diskUsed = fmt.Sprintf("%d%%", int(freeGB*100/totalGB))
+				diskUsed = fmt.Sprintf("%d%%", int(usedGB*100/totalGB)) // calculate % usage
 			}
+
 			fmt.Printf("%s# Disk Info:%s\n", YELLOW, RC)
 			fmt.Printf("└┬Disk Name : %s\n", diskName)
 			fmt.Printf(" ├Total     : %s\n", diskTotal)
@@ -182,16 +199,6 @@ func CrunchySystemMonitor() {
 			line()
 
 			fmt.Printf("Press [Enter] to stop the System Monitor\n")
-
-			// Async Update für die nächste Runde
-			go func() {
-				cpuUsage = getCPUUsagePercent()
-				topCPU = getTopCPUProcesses()
-				freeRam = getRAMUsagePercent()
-				diskName, diskTotal, diskUsed = GetDiskInfo()
-			}()
-
-			time.Sleep(1 * time.Second)
 		}
 	}
 }
@@ -305,7 +312,7 @@ func clipboardLogger() {
 					}
 
 					if !toolFound {
-						return "", fmt.Errorf("no clipboard tool found (xclip/xsel)")
+						return "", fmt.Errorf("no clipboard tool found (xclip/xsel)\n")
 					}
 					return clip, nil
 				}
@@ -313,10 +320,9 @@ func clipboardLogger() {
 
 			// Handle errors reading clipboard
 			if err != nil {
-				printError("Clipboard read failed:")
+				printError("Clipboard read failed: ")
 				fmt.Printf("%s", err)
-				time.Sleep(2 * time.Second)
-				continue
+				return
 			}
 
 			// Print new clipboard content if it has changed
@@ -371,7 +377,7 @@ func powerTimer(action, toption string) {
 	}
 
 	printSuccess("Finished timer. Executing...\n")
-	go notifyAlarm()
+	notifyAlarm()
 	time.Sleep(2 * time.Second)
 
 	// Determine the shutdown/reboot command based on OS
@@ -445,6 +451,7 @@ func weather() {
 	// Check for reading errors
 	if err := scanner.Err(); err != nil {
 		printError("Error reading weather data")
+		pause()
 	}
 
 	printSuccess("Finished getting weather infos from wttr.in")
@@ -481,6 +488,7 @@ func infograb() {
 	if err != nil {
 		cancel()
 		printError("Failed to lookup domain")
+		pause()
 		return
 	}
 	output.WriteString(fmt.Sprintf("%s# Domain Info for %s:%s\n", YELLOW, cu_input, RC))
@@ -578,10 +586,10 @@ func rebootBIOS() {
 
 	switch goos {
 	case "windows":
-		// Windows: Neustart ins BIOS
+		// Windows: Neustart to BIOS
 		cmd = []string{"shutdown", "/r", "/fw", "/t", "0"}
 	default:
-		// Linux / Unix: systemctl reboot ins BIOS/UEFI
+		// Linux / Unix: systemctl reboot to BIOS/UEFI
 		cmd = []string{"systemctl", "reboot", "--firmware-setup"}
 	}
 

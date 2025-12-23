@@ -14,15 +14,15 @@ gofmt -s -w ../.
 echo "Formatting done."
 
 echo "Building CrunchyUtils for Windows amd64..."
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ../bin/CrunchyUtils_Windows.exe ../.
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ../bin/crunchyutils.exe ../.
 echo "Windows build succeeded."
 
 echo "Building CrunchyUtils for Linux amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/CrunchyUtils_Linux ../.
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/crunchyutils ../.
 echo "Linux amd64 build succeeded."
 
 echo "Building CrunchyUtils for Linux ARM64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../bin/CrunchyUtils_Linux_arm64 ../.
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../bin/crunchyutils_arm64 ../.
 echo "Linux ARM64 build succeeded."
 
 echo "All builds finished successfully."

@@ -20,7 +20,7 @@ echo Building CrunchyUtils for Windows amd64...
 set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
-go build -o ..\bin\CrunchyUtils_Windows.exe ..\.
+go build -o ..\bin\crunchyutils.exe ..\.
 if errorlevel 1 (
     echo Windows build failed
     exit /b 1
@@ -31,7 +31,7 @@ echo Building CrunchyUtils for Linux amd64...
 set CGO_ENABLED=0
 set GOOS=linux
 set GOARCH=amd64
-go build -o ..\bin\CrunchyUtils_Linux ..\.
+go build -o ..\bin\crunchyutils ..\.
 if errorlevel 1 (
     echo Linux build failed
     exit /b 1
@@ -42,7 +42,7 @@ echo Building CrunchyUtils for Linux ARM64...
 set CGO_ENABLED=0
 set GOOS=linux
 set GOARCH=arm64
-go build -o ..\bin\CrunchyUtils_Linux_arm64 ..\.
+go build -o ..\bin\crunchyutils_arm64 ..\.
 if errorlevel 1 (
     echo Linux ARM64 build failed
     exit /b 1
