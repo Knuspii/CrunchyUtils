@@ -198,7 +198,7 @@ func CrunchySystemMonitor() {
 			fmt.Printf(" └Used      : %s %s\n", diskUsed, createBar(diskUsed))
 			line()
 
-			fmt.Printf("Press [Enter] to stop the System Monitor\n")
+			fmt.Printf("Press [Enter] to exit\n")
 		}
 	}
 }

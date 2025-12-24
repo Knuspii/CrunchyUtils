@@ -33,14 +33,11 @@ import (
 
 	"github.com/eiannone/keyboard" // Raw keyboard input
 	"github.com/gen2brain/beeep"   // System beep / notifications
+	"golang.org/x/term"            // Terminal size detection
 )
 
-//
-// ========================== CONSTANTS ==========================
-//
-
 const (
-	CU_VERSION = "PRE 0.17"
+	CU_VERSION = "0.18"
 
 	// Target terminal size
 	COLS  = 70
@@ -57,10 +54,6 @@ const (
 	CYAN   = "\033[36m"
 	RC     = "\033[0m"
 )
-
-//
-// ========================== GLOBAL STATE ==========================
-//
 
 var (
 	getcols, getlines int                           // Detected terminal size
@@ -186,19 +179,20 @@ func startup() {
 	}
 	fmt.Printf("\n%s**************************%s", GREEN, RC)
 	printSuccess("LOADING SUCCESSFUL!")
-	time.Sleep(CMDWAIT)
-	time.Sleep(CMDWAIT)
-	go beeep.Beep(600, 150)
+	beeep.Beep(600, 150)
+	time.Sleep(100 * time.Millisecond)
+	beeep.Beep(800, 200)
+	time.Sleep(100 * time.Millisecond)
+	beeep.Beep(1000, 300)
 }
 
 //
 // ========================== APPLICATION INIT ==========================
 //
 
-// initApp performs environment setup that depends on the terminal and OS
+// initApp performs environment setup
 func initApp() {
-	printInfo("Initializing...")
-	// Resolve current user for display purposes
+	// Current user
 	usr, err := user.Current()
 	if err != nil {
 		printError("Username: unknown")
@@ -206,69 +200,42 @@ func initApp() {
 		printInfo(fmt.Sprintf("Username: %s", usr.Username))
 	}
 
-	// Set terminal window title (works in most terminals)
+	// Set terminal title
 	fmt.Printf("\033]0;CrunchyUtils\007")
 
-	// Attempt to resize terminal to the expected layout
-	// This is best-effort and highly terminal-dependent
+	// Try to resize terminal
 	switch goos {
 	case "windows":
-		// Set CMD window title explicitly
-		_, _ = runCommand([]string{"cmd", "/C", "title CrunchyUtils"})
-
-		// Resize PowerShell window and buffer
-		// Buffer height is larger to allow scrolling
+		// CMD title and size
+		runCommand([]string{"cmd", "/C", "title CrunchyUtils"})
+		// PowerShell resize
 		psCmd := fmt.Sprintf(
-			`$Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(%d,%d); `+
-				`$Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(%d,300)`,
-			COLS, LINES, COLS,
+			`$Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(%d,%d)`,
+			COLS, LINES,
 		)
-		_, _ = runCommand([]string{"powershell", "-Command", psCmd})
-
-	default:
-		// ANSI escape resize (ignored by some terminals)
-		fmt.Printf("\033[8;%d;%dt", LINES, COLS)
+		runCommand([]string{"powershell", "-Command", psCmd})
 	}
+	// ANSI resize (best effort, also fallback but this works 90% of the time)
+	fmt.Printf("\033[8;%d;%dt", LINES, COLS)
 
 	// ---- VERIFY SIZE ----
-	// We re-detect terminal size to ensure layout assumptions are valid
 	getcols, getlines = 0, 0
-	var sizeErr error
+	sizeErr := error(nil)
 
-	if goos == "windows" {
-		// `mode con` prints current console dimensions
-		out, err := runCommand([]string{"cmd", "/C", "mode con"})
-		if err != nil {
-			sizeErr = err
-		} else {
-			// Parse Columns / Lines from command output
-			for _, line := range strings.Split(out, "\n") {
-				if strings.Contains(line, "Columns:") {
-					fmt.Sscanf(line, "    Columns: %d", &getcols)
-				}
-				if strings.Contains(line, "Lines:") {
-					fmt.Sscanf(line, "    Lines: %d", &getlines)
-				}
-			}
-		}
+	// NEW SIMPLE WAY: term.GetSize
+	cols, lines, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		sizeErr = err
 	} else {
-		// `stty size` returns rows cols from the active TTY
-		out, err := runCommand([]string{"sh", "-c", "stty size < /dev/tty"})
-		if err != nil {
-			sizeErr = err
-		} else {
-			fmt.Sscanf(out, "%d %d", &getlines, &getcols)
-		}
+		getcols = cols
+		getlines = lines
 	}
 
-	// Abort size validation if detection failed
 	if sizeErr != nil || getcols == 0 || getlines == 0 {
 		printError("Could not detect terminal size")
 		time.Sleep(2 * time.Second)
-		return
 	}
 
-	// Compare actual size with required layout size
 	if getcols != COLS || getlines != LINES {
 		printError(fmt.Sprintf("Terminal size mismatch got: %dx%d expected: %dx%d", getcols, getlines, COLS, LINES))
 		time.Sleep(2 * time.Second)
@@ -401,8 +368,8 @@ func showBanner() {
 ▓  ▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓▓▓ Version  : %s
 ▒  ▒▒▒▒  ▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒  ▒▒▒▒▒▒▒▒▒      ▒▒ Uptime   : %s
 ▓  ▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓ Used-RAM : %s
-██      ██████  █████        ██        ███      ██ Time: %s
-`, YELLOW, CU_VERSION, uptime, usedRam, now.Format("15:04:05"))
+██      ██████  █████        ██        ███      ██ Time     : %s
+`, YELLOW, CU_VERSION, uptime, usedRam, now.Format("15:04"))
 	line()
 	fmt.Printf("Tools:\n")
 	fmt.Printf("  [1]  - %sSystem monitor%s\n", YELLOW, RC)

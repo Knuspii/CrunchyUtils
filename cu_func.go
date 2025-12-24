@@ -223,8 +223,8 @@ func parseTimeInput(input string) (int, error) {
 }
 
 func getCPUUsagePercent() string {
-	// CPU Prozent über 100ms messen, Non-blocking Context
-	percentages, err := cpu.Percent(100*time.Millisecond, false)
+	// CPU percent 1000ms, Non-blocking Context
+	percentages, err := cpu.Percent(1000*time.Millisecond, false)
 	if err != nil || len(percentages) == 0 {
 		return "0%"
 	}

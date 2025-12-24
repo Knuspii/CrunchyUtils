@@ -6,6 +6,7 @@ require (
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/gen2brain/beeep v0.11.2
 	github.com/shirou/gopsutil/v3 v3.24.5
+	golang.org/x/term v0.38.0
 )
 
 require (
