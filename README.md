@@ -1,5 +1,5 @@
 [![Golang](https://img.shields.io/static/v1?label=Made%20with&message=Go&logo=go&color=007ACC)](https://go.dev/)
-[![Go version](https://img.shields.io/github/go-mod/go-version/knuspii/crunchyutils)](https://github.com/knuspii/notigo)
+[![Go version](https://img.shields.io/github/go-mod/go-version/knuspii/crunchyutils)](https://github.com/knuspii/crunchyutils)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Knuspii/crunchyutils)](https://goreportcard.com/report/github.com/Knuspii/crunchyutils)
 [![Build](https://github.com/Knuspii/crunchyutils/actions/workflows/go.yml/badge.svg)](https://github.com/Knuspii/crunchyutils/actions/workflows/go.yml)
 [![GitHub Issues](https://img.shields.io/github/issues/knuspii/crunchyutils)](https://github.com/knuspii/crunchyutils/issues)
