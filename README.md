@@ -5,11 +5,13 @@
 [![GitHub Issues](https://img.shields.io/github/issues/knuspii/crunchyutils)](https://github.com/knuspii/crunchyutils/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/knuspii/crunchyutils?style=social)](https://github.com/knuspii/crunchyutils/stargazers)
 
-<h1>CrunchyUtils 🛠️⚙️</h1>
+<h1>CrunchyUtils 🛠️⚙️</h1> 
 
 <img src="assets/cu_logo.png" width="800" height="800" alt="CrunchyUtilsLogo">
 
-Simple program with various utilities. 
+Simple program with various utilities.\
+[![Release](https://img.shields.io/github/v/release/knuspii/crunchyutils?color=blue)](https://github.com/knuspii/crunchyutils/releases)
+
 
 ## 📥 [[Download here]](https://github.com/knuspii/crunchyutils/releases) <- Click here to download CrunchyUtils!
 
